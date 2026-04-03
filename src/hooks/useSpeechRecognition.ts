@@ -53,7 +53,11 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
   const isListeningRef = useRef(false);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isSupported = typeof window !== 'undefined' && getSpeechRecognitionConstructor() !== null;
+  const [isSupported, setIsSupported] = useState(false);
+
+  useEffect(() => {
+    setIsSupported(getSpeechRecognitionConstructor() !== null);
+  }, []);
 
   const cleanup = useCallback(() => {
     if (restartTimeoutRef.current) {

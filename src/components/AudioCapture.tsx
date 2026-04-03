@@ -42,8 +42,12 @@ export default function AudioCapture({
   }, [transcript, onFinalText]);
 
   // 中間テキストを通知
+  const prevInterimRef = useRef('');
   useEffect(() => {
-    onInterimText(interimTranscript);
+    if (interimTranscript !== prevInterimRef.current) {
+      prevInterimRef.current = interimTranscript;
+      onInterimText(interimTranscript);
+    }
   }, [interimTranscript, onInterimText]);
 
   // エラー通知
@@ -51,13 +55,9 @@ export default function AudioCapture({
     if (error) onError(error);
   }, [error, onError]);
 
-  if (!isSupported) {
-    return (
-      <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
-        お使いのブラウザは音声認識に対応していません。Chrome または Safari をお使いください。
-      </div>
-    );
-  }
-
-  return null;
+  return !isSupported ? (
+    <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+      お使いのブラウザは音声認識に対応していません。Chrome または Safari をお使いください。
+    </div>
+  ) : null;
 }
