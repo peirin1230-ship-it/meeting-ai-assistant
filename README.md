@@ -1,5 +1,7 @@
 # Meeting AI Assistant
 
+> **[アプリを開く](https://meeting-ai-assistant-liart.vercel.app/)**
+
 リアルタイム会議支援AIアシスタント。会議中の音声を認識し、選択した回答者のフレームワークでAIがリアルタイムに分析・示唆・発言提案を提供します。
 
 ## 特徴
