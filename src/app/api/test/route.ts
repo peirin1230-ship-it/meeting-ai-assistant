@@ -3,26 +3,32 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const checks: Record<string, string> = {};
+
+  // 1. prompts のインポート
   try {
-    // 1. 基本動作テスト
-    const checks: Record<string, string> = {};
-    checks['basic'] = 'ok';
-
-    // 2. 環境変数チェック
-    checks['ANTHROPIC_API_KEY'] = process.env.ANTHROPIC_API_KEY ? `set (${process.env.ANTHROPIC_API_KEY.substring(0, 10)}...)` : 'NOT SET';
-    checks['UPSTASH_REDIS_REST_URL'] = process.env.UPSTASH_REDIS_REST_URL ? 'set' : 'NOT SET';
-
-    // 3. Anthropic SDK インポートテスト
-    try {
-      const { default: Anthropic } = await import('@anthropic-ai/sdk');
-      const client = new Anthropic();
-      checks['anthropic_sdk'] = `ok (${typeof client})`;
-    } catch (e) {
-      checks['anthropic_sdk'] = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
-    }
-
-    return NextResponse.json(checks);
+    const { getSystemPrompt, getUserMessage } = await import('@/lib/prompts');
+    const sp = getSystemPrompt('takamatsu', 'general');
+    checks['prompts'] = `ok (${sp.length} chars)`;
+    const um = getUserMessage('テスト', 'early');
+    checks['userMessage'] = `ok (${um.length} chars)`;
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    checks['prompts'] = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
   }
+
+  // 2. Anthropic SDK + 実際のAPI呼び出し
+  try {
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const client = new Anthropic();
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-4-6-20250514',
+      max_tokens: 50,
+      messages: [{ role: 'user', content: 'Hi, reply with just "ok"' }],
+    });
+    checks['anthropic_api'] = `ok (${msg.content[0].type})`;
+  } catch (e) {
+    checks['anthropic_api'] = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  return NextResponse.json(checks);
 }
