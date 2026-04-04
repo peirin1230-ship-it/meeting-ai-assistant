@@ -5,29 +5,28 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const checks: Record<string, string> = {};
 
-  // 1. prompts のインポート
-  try {
-    const { getSystemPrompt, getUserMessage } = await import('@/lib/prompts');
-    const sp = getSystemPrompt('takamatsu', 'general');
-    checks['prompts'] = `ok (${sp.length} chars)`;
-    const um = getUserMessage('テスト', 'early');
-    checks['userMessage'] = `ok (${um.length} chars)`;
-  } catch (e) {
-    checks['prompts'] = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
-  }
+  const models = [
+    'claude-sonnet-4-5-20250514',
+    'claude-sonnet-4-6-20250514',
+    'claude-4-sonnet-20250514',
+    'claude-sonnet-4-20250514',
+  ];
 
-  // 2. Anthropic SDK + 実際のAPI呼び出し
-  try {
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic();
-    const msg = await client.messages.create({
-      model: 'claude-sonnet-4-6-20250514',
-      max_tokens: 50,
-      messages: [{ role: 'user', content: 'Hi, reply with just "ok"' }],
-    });
-    checks['anthropic_api'] = `ok (${msg.content[0].type})`;
-  } catch (e) {
-    checks['anthropic_api'] = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const client = new Anthropic();
+
+  for (const model of models) {
+    try {
+      const msg = await client.messages.create({
+        model,
+        max_tokens: 10,
+        messages: [{ role: 'user', content: 'say ok' }],
+      });
+      checks[model] = `OK (${msg.model})`;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      checks[model] = msg.includes('not_found') ? 'NOT FOUND' : `ERROR: ${msg.substring(0, 80)}`;
+    }
   }
 
   return NextResponse.json(checks);
