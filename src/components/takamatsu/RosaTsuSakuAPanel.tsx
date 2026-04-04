@@ -63,12 +63,12 @@ export default function RosaTsuSakuAPanel({ insight, alerts }: RosaTsuSakuAPanel
       <RontenCard ronten={insight.ronten} />
 
       {/* サブ論点ツリー */}
-      {insight.subRonten.length > 0 && (
+      {insight.subRonten?.length > 0 && (
         <SubRontenTree subRonten={insight.subRonten} tasks={insight.tasks} />
       )}
 
       {/* スケジュール */}
-      {insight.schedule.length > 0 && (
+      {insight.schedule?.length > 0 && (
         <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-900/20">
           <h4 className="mb-2 text-xs font-bold" style={{ color: ROSA_COLORS['ス'] }}>
             ス スケジュール
@@ -95,7 +95,7 @@ export default function RosaTsuSakuAPanel({ insight, alerts }: RosaTsuSakuAPanel
       )}
 
       {/* アウトプット */}
-      {insight.output.deliverables.length > 0 && (
+      {insight.output?.deliverables?.length > 0 && (
         <div className="rounded-lg border border-purple-200 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-900/20">
           <h4 className="mb-2 text-xs font-bold" style={{ color: ROSA_COLORS['ア'] }}>
             ア アウトプット
