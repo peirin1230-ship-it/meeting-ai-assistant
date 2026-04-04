@@ -5,7 +5,7 @@ import { useMeetingStore } from '@/stores/meeting-store';
 import { useTranscriptBuffer } from '@/hooks/useTranscriptBuffer';
 import { useClaudeStream } from '@/hooks/useClaudeStream';
 import { useSessionSync } from '@/hooks/useSessionSync';
-import type { ChatRequest, TranscriptSegment, SessionSegment } from '@/types';
+import type { ChatRequest, TranscriptSegment, SessionSegment, RespondentId } from '@/types';
 import AudioCapture from './AudioCapture';
 import TranscriptPanel from './TranscriptPanel';
 import InsightPanel from './InsightPanel';
@@ -296,6 +296,18 @@ export default function MeetingAssistant() {
     store.stopMeeting();
   }, [session, store]);
 
+  // 回答者切り替え（会議中は文脈を引き継いで再分析）
+  const handleRespondentChange = useCallback(
+    (id: RespondentId) => {
+      store.setRespondent(id);
+      if (store.isActive && store.segments.length > 0) {
+        const allText = store.segments.map((s) => s.text).join(' ');
+        requestAnalysis(allText);
+      }
+    },
+    [store, requestAnalysis],
+  );
+
   const isViewer = store.deviceRole === 'viewer';
   const isPhone = store.deviceRole === 'phone';
 
@@ -312,12 +324,12 @@ export default function MeetingAssistant() {
         disabled={store.isActive}
       />
 
-      {/* 回答者選択（会議開始前のみ、viewerモードでは非表示） */}
-      {!store.isActive && !isViewer && (
+      {/* 回答者選択（viewerモードでは非表示） */}
+      {!isViewer && (
         <RespondentSelector
           selected={store.respondentId}
-          onChange={store.setRespondent}
-          disabled={store.isActive}
+          onChange={handleRespondentChange}
+          disabled={false}
         />
       )}
 
