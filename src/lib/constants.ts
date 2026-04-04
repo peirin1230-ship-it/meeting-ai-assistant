@@ -59,3 +59,8 @@ export const JPY_PER_USD = 150;
 // 会議フェーズ判定（分）
 export const PHASE_EARLY_MINUTES = 10;
 export const PHASE_MID_MINUTES = 40;
+
+// セッション同期設定
+export const SESSION_POLL_INTERVAL_MS = 2_000;
+export const SESSION_TTL_SECONDS = 7_200;
+export const SESSION_CODE_LENGTH = 6;

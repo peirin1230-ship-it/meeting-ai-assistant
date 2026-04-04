@@ -152,3 +152,28 @@ export interface SpeechRecognitionConfig {
   continuous: boolean;
   interimResults: boolean;
 }
+
+// ============================================================
+// クロスデバイスセッション同期
+// ============================================================
+
+export type DeviceRole = 'standalone' | 'phone' | 'viewer';
+
+export interface SessionSegment {
+  id: string;
+  text: string;
+  timestamp: string;
+  isFinal: boolean;
+}
+
+export interface SessionData {
+  id: string;
+  createdAt: string;
+  meetingType: MeetingType;
+  respondentId: RespondentId;
+  segments: SessionSegment[];
+  segmentVersion: number;
+  interimText: string;
+  interimUpdatedAt: string;
+  isActive: boolean;
+}

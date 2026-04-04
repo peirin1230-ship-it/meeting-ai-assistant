@@ -8,6 +8,7 @@ import type {
   ProblemSolvingInsight,
   CostTracker,
   TranscriptSegment,
+  DeviceRole,
 } from '@/types';
 import { PHASE_EARLY_MINUTES, PHASE_MID_MINUTES } from '@/lib/constants';
 
@@ -36,6 +37,10 @@ interface MeetingState {
   // コスト
   cost: CostTracker;
 
+  // セッション同期
+  sessionCode: string | null;
+  deviceRole: DeviceRole;
+
   // アクション
   setRespondent: (id: RespondentId) => void;
   setMeetingType: (type: MeetingType) => void;
@@ -49,6 +54,8 @@ interface MeetingState {
   updateCost: (inputTokens: number, outputTokens: number) => void;
   getMeetingPhase: () => MeetingPhase;
   getPreviousContext: () => string | undefined;
+  setSessionCode: (code: string | null) => void;
+  setDeviceRole: (role: DeviceRole) => void;
   reset: () => void;
 }
 
@@ -74,6 +81,8 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
   takamatsuInsight: null,
   takadaInsight: null,
   cost: { ...initialCost },
+  sessionCode: null,
+  deviceRole: 'standalone',
 
   setRespondent: (id) => set({ respondentId: id }),
   setMeetingType: (type) => set({ meetingType: type }),
@@ -140,6 +149,9 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
     return latestResponse?.summary ?? undefined;
   },
 
+  setSessionCode: (code) => set({ sessionCode: code }),
+  setDeviceRole: (role) => set({ deviceRole: role }),
+
   reset: () =>
     set({
       isActive: false,
@@ -153,5 +165,7 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       takamatsuInsight: null,
       takadaInsight: null,
       cost: { ...initialCost },
+      sessionCode: null,
+      deviceRole: 'standalone',
     }),
 }));
