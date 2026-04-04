@@ -84,6 +84,7 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
     recognition.continuous = !isIOS;
 
     recognition.onstart = () => {
+      console.log('[SpeechRecognition] started');
       setIsListening(true);
       isListeningRef.current = true;
       setError(null);
@@ -102,6 +103,8 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
         }
       }
 
+      console.log('[SpeechRecognition] result:', { finalText, interimText });
+
       if (finalText) {
         setTranscript((prev) => prev + finalText);
       }
@@ -109,12 +112,14 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      console.log('[SpeechRecognition] error:', event.error);
       if (event.error === 'no-speech' || event.error === 'aborted') return;
       setError(`音声認識エラー: ${event.error}`);
     };
 
     // iOS Safari 対策: 認識終了時に自動再開
     recognition.onend = () => {
+      console.log('[SpeechRecognition] ended, isListening:', isListeningRef.current);
       if (isListeningRef.current) {
         restartTimeoutRef.current = setTimeout(() => {
           try {
