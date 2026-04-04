@@ -84,18 +84,18 @@ export default function MeetingAssistant() {
     [buffer, claude, store],
   );
 
-  // claude応答の反映
+  // claude応答の反映（storeを依存に入れると無限ループになるため除外）
   useEffect(() => {
     if (claude.latestResponse) {
-      store.setLatestResponse(claude.latestResponse);
+      useMeetingStore.getState().setLatestResponse(claude.latestResponse);
     }
-  }, [claude.latestResponse, store]);
+  }, [claude.latestResponse]);
 
   useEffect(() => {
     if (claude.error) {
-      store.setError(claude.error);
+      useMeetingStore.getState().setError(claude.error);
     }
-  }, [claude.error, store]);
+  }, [claude.error]);
 
   // 定期チェック: バッファが閾値を超えたらAPI呼び出し
   useEffect(() => {
