@@ -3,7 +3,13 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ChatRequest } from '@/types';
 import { getSystemPrompt, getUserMessage } from '@/lib/prompts';
 
-const anthropic = new Anthropic();
+let _anthropic: Anthropic | null = null;
+function getAnthropic(): Anthropic {
+  if (!_anthropic) {
+    _anthropic = new Anthropic();
+  }
+  return _anthropic;
+}
 
 // レート制限: 1分あたり20リクエスト
 const requestTimes: number[] = [];
@@ -36,7 +42,7 @@ export async function POST(req: NextRequest) {
     const systemPrompt = getSystemPrompt(respondentId ?? 'takamatsu', meetingType ?? 'general');
     const userMessage = getUserMessage(transcript, meetingPhase ?? 'early', previousContext, previousInsight);
 
-    const stream = await anthropic.messages.stream({
+    const stream = await getAnthropic().messages.stream({
       model: 'claude-sonnet-4-6-20250514',
       max_tokens: 2048,
       system: [
