@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     const userMessage = getUserMessage(transcript, meetingPhase ?? 'early', previousContext, previousInsight);
 
     const stream = await anthropic.messages.stream({
-      model: 'claude-sonnet-4-6-20250514',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
       system: [
         {
