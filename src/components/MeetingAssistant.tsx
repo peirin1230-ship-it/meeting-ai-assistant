@@ -6,7 +6,7 @@ import { useTranscriptBuffer } from '@/hooks/useTranscriptBuffer';
 import { useClaudeStream } from '@/hooks/useClaudeStream';
 import { useSessionSync } from '@/hooks/useSessionSync';
 import type { ChatRequest, TranscriptSegment, SessionSegment, RespondentId } from '@/types';
-import AudioCapture from './AudioCapture';
+import AudioCapture, { type AudioCaptureHandle } from './AudioCapture';
 import TranscriptPanel from './TranscriptPanel';
 import InsightPanel from './InsightPanel';
 import ControlBar from './ControlBar';
@@ -23,6 +23,7 @@ export default function MeetingAssistant() {
   const checkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const interimPushRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingSegmentsRef = useRef<SessionSegment[]>([]);
+  const audioCaptureRef = useRef<AudioCaptureHandle>(null);
 
   // viewer用: リモートセグメントの蓄積バッファ
   const viewerBufferRef = useRef('');
@@ -223,11 +224,16 @@ export default function MeetingAssistant() {
     // viewerモード: ポーリング開始
     if (store.deviceRole === 'viewer') {
       session.startPolling();
+    } else {
+      // iOS Safari対策: マイク起動はタップと同じ同期コンテキストで呼ぶ必要があるため、
+      // useEffect任せにせずここ（ボタンハンドラ内）で直接 start() する
+      audioCaptureRef.current?.start();
     }
   }, [store, buffer, claude, session]);
 
   const handleStop = useCallback(() => {
     store.stopMeeting();
+    audioCaptureRef.current?.stop();
     if (store.deviceRole === 'phone') {
       // 残りのpendingセグメントを送信
       if (pendingSegmentsRef.current.length > 0) {
@@ -421,6 +427,7 @@ export default function MeetingAssistant() {
       {/* 音声キャプチャ（viewerモードでは非表示） */}
       {!isViewer && (
         <AudioCapture
+          ref={audioCaptureRef}
           isActive={store.isActive}
           onFinalText={handleFinalText}
           onInterimText={handleInterimText}
