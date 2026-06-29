@@ -52,6 +52,9 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const isListeningRef = useRef(false);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // start()が実際にマイクを起動できたか（onstart発火）を追跡
+  const startedRef = useRef(false);
 
   const [isSupported, setIsSupported] = useState(false);
 
@@ -64,6 +67,10 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
       clearTimeout(restartTimeoutRef.current);
       restartTimeoutRef.current = null;
     }
+    if (startWatchdogRef.current) {
+      clearTimeout(startWatchdogRef.current);
+      startWatchdogRef.current = null;
+    }
   }, []);
 
   const start = useCallback(() => {
@@ -73,7 +80,13 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
       return;
     }
 
+    // 二重start防止: 既に起動中／起動処理中なら何もしない。
+    // （iOSではタップ起点のstartとuseEffect起点のstartが二重に走ると
+    //   "already started" 例外になり起動に失敗するため）
+    if (recognitionRef.current) return;
+
     cleanup();
+    startedRef.current = false;
 
     const recognition = new SpeechRecognition();
     recognition.lang = lang;
@@ -84,7 +97,12 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
     recognition.continuous = !isIOS;
 
     recognition.onstart = () => {
-
+      // マイク起動成功: 起動失敗ウォッチドッグを解除
+      startedRef.current = true;
+      if (startWatchdogRef.current) {
+        clearTimeout(startWatchdogRef.current);
+        startWatchdogRef.current = null;
+      }
       setIsListening(true);
       isListeningRef.current = true;
       setError(null);
@@ -111,8 +129,23 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-
+      // no-speech / aborted は自動再開でリカバリするため無視
       if (event.error === 'no-speech' || event.error === 'aborted') return;
+
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        // マイク権限が拒否された場合は再開せず明確に通知
+        isListeningRef.current = false;
+        startedRef.current = true; // 起動ウォッチドッグによる上書きを防ぐ
+        if (startWatchdogRef.current) {
+          clearTimeout(startWatchdogRef.current);
+          startWatchdogRef.current = null;
+        }
+        setError(
+          'マイクの使用が許可されていません。ブラウザの設定でマイクへのアクセスを許可し、HTTPS接続であることを確認してください。',
+        );
+        return;
+      }
+
       setError(`音声認識エラー: ${event.error}`);
     };
 
@@ -120,16 +153,21 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
     recognition.onend = () => {
 
       if (isListeningRef.current) {
+        // iOS Safari対策: continuousが途切れるため同一インスタンスを自動再開。
+        // （最初のstartがユーザータップ起点なら、onend内のstartは
+        //   ジェスチャー無しでも許可される）
         restartTimeoutRef.current = setTimeout(() => {
           try {
             recognition.start();
           } catch {
             setIsListening(false);
             isListeningRef.current = false;
+            recognitionRef.current = null;
           }
         }, 100);
       } else {
         setIsListening(false);
+        recognitionRef.current = null;
       }
     };
 
@@ -138,8 +176,22 @@ export function useSpeechRecognition(lang: 'ja-JP' | 'en-US' = 'ja-JP'): SpeechR
     try {
       recognition.start();
     } catch {
+      // start()が同期的に例外を投げた場合（多重start等）はインスタンスを破棄
+      recognitionRef.current = null;
       setError('音声認識の開始に失敗しました。マイクの権限を確認してください。');
+      return;
     }
+
+    // 起動ウォッチドッグ: 一定時間 onstart も onerror も来ない場合、
+    // iOSなどでマイク起動が黙って拒否された可能性が高いので通知する
+    startWatchdogRef.current = setTimeout(() => {
+      if (!startedRef.current && isListeningRef.current === false) {
+        recognitionRef.current = null;
+        setError(
+          '音声認識を開始できませんでした。マイクの権限を確認し、もう一度「開始」を押してください。（iPhoneの場合は画面をタップして開始する必要があります）',
+        );
+      }
+    }, 4000);
   }, [lang, cleanup]);
 
   const stop = useCallback(() => {
