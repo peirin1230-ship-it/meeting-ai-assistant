@@ -7,6 +7,7 @@ import { useClaudeStream } from '@/hooks/useClaudeStream';
 import { useSessionSync } from '@/hooks/useSessionSync';
 import type { ChatRequest, TranscriptSegment, SessionSegment, RespondentId } from '@/types';
 import type { MicStatus } from '@/hooks/useSpeechRecognition';
+import { BUFFER_SEND_INTERVAL_MS, BUFFER_SEND_CHAR_THRESHOLD } from '@/lib/constants';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import { saveMeta } from '@/lib/recordings-db';
 import AudioCapture, { type AudioCaptureHandle } from './AudioCapture';
@@ -151,7 +152,7 @@ export default function MeetingAssistant() {
       // viewerモード: リモートセグメントが溜まったらClaude分析
       checkIntervalRef.current = setInterval(() => {
         const text = viewerBufferRef.current;
-        if (text.length >= 300 && !claude.isStreaming) {
+        if (text.length >= BUFFER_SEND_CHAR_THRESHOLD && !claude.isStreaming) {
           viewerBufferRef.current = '';
           requestAnalysis(text);
         }
@@ -173,7 +174,7 @@ export default function MeetingAssistant() {
     };
   }, [store.isActive, store.deviceRole, shouldSend, claude.isStreaming, requestAnalysis]);
 
-  // viewerモード: 30秒経過でも分析実行（文字数が足りなくても）
+  // viewerモード: 一定時間経過でも分析実行（文字数が足りなくても）
   useEffect(() => {
     if (!store.isActive || store.deviceRole !== 'viewer') return;
 
@@ -183,7 +184,7 @@ export default function MeetingAssistant() {
         viewerBufferRef.current = '';
         requestAnalysis(text);
       }
-    }, 30_000);
+    }, BUFFER_SEND_INTERVAL_MS);
 
     return () => clearInterval(timer);
   }, [store.isActive, store.deviceRole, claude.isStreaming, requestAnalysis]);

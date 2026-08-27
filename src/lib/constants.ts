@@ -48,8 +48,10 @@ export const MEETING_TYPES = [
   { id: 'review' as const, label: 'レビュー', description: '成果物・進捗のレビュー会議' },
 ];
 
-// バッファ設定
-export const BUFFER_SEND_INTERVAL_MS = 30_000;
+// バッファ設定（分析リクエストの発火条件）
+// 「経過時間」か「蓄積文字数」のどちらか早い方で発火する。
+// 間隔を延ばすほどAPI呼び出し回数が減り、コストも下がる。
+export const BUFFER_SEND_INTERVAL_MS = 90_000;
 export const BUFFER_SEND_CHAR_THRESHOLD = 300;
 
 // ============================================================
