@@ -138,6 +138,10 @@ export interface ChatRequest {
 export interface CostTracker {
   sessionInputTokens: number;
   sessionOutputTokens: number;
+  /** プロンプトキャッシュへの書き込み量（単価1.25倍） */
+  sessionCacheWriteTokens: number;
+  /** プロンプトキャッシュからの読み出し量（単価0.1倍） */
+  sessionCacheReadTokens: number;
   sessionCost: number;
   sessionCostJPY: number;
   apiCallCount: number;

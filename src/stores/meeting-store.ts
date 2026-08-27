@@ -15,8 +15,11 @@ import {
   PHASE_MID_MINUTES,
   COST_PER_MTOK_INPUT_USD,
   COST_PER_MTOK_OUTPUT_USD,
+  CACHE_WRITE_MULTIPLIER,
+  CACHE_READ_MULTIPLIER,
   JPY_PER_USD,
 } from '@/lib/constants';
+import type { TokenUsage } from '@/lib/stream-protocol';
 
 interface MeetingState {
   // 会議設定
@@ -57,7 +60,7 @@ interface MeetingState {
   setLatestResponse: (response: AIResponse) => void;
   setStreaming: (streaming: boolean) => void;
   setError: (error: string | null) => void;
-  updateCost: (inputTokens: number, outputTokens: number) => void;
+  updateCost: (usage: TokenUsage) => void;
   getMeetingPhase: () => MeetingPhase;
   getPreviousContext: () => string | undefined;
   setSessionCode: (code: string | null) => void;
@@ -68,6 +71,8 @@ interface MeetingState {
 const initialCost: CostTracker = {
   sessionInputTokens: 0,
   sessionOutputTokens: 0,
+  sessionCacheWriteTokens: 0,
+  sessionCacheReadTokens: 0,
   sessionCost: 0,
   sessionCostJPY: 0,
   apiCallCount: 0,
@@ -130,16 +135,28 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
 
   setError: (error) => set((state) => (state.error === error ? state : { error })),
 
-  updateCost: (inputTokens, outputTokens) =>
+  // キャッシュ書き込み(1.25倍)・読み出し(0.1倍)は単価が異なるため個別に計上する
+  updateCost: (usage) =>
     set((state) => {
-      const newInput = state.cost.sessionInputTokens + inputTokens;
-      const newOutput = state.cost.sessionOutputTokens + outputTokens;
-      const costUSD =
-        (newInput * COST_PER_MTOK_INPUT_USD + newOutput * COST_PER_MTOK_OUTPUT_USD) / 1_000_000;
+      // デプロイ端境期などでフィールドが欠けてもNaNにしないよう既定値を置く
+      const input = state.cost.sessionInputTokens + (usage.inputTokens ?? 0);
+      const output = state.cost.sessionOutputTokens + (usage.outputTokens ?? 0);
+      const cacheWrite = state.cost.sessionCacheWriteTokens + (usage.cacheCreationTokens ?? 0);
+      const cacheRead = state.cost.sessionCacheReadTokens + (usage.cacheReadTokens ?? 0);
+
+      const inputUSD =
+        ((input + cacheWrite * CACHE_WRITE_MULTIPLIER + cacheRead * CACHE_READ_MULTIPLIER) *
+          COST_PER_MTOK_INPUT_USD) /
+        1_000_000;
+      const outputUSD = (output * COST_PER_MTOK_OUTPUT_USD) / 1_000_000;
+      const costUSD = inputUSD + outputUSD;
+
       return {
         cost: {
-          sessionInputTokens: newInput,
-          sessionOutputTokens: newOutput,
+          sessionInputTokens: input,
+          sessionOutputTokens: output,
+          sessionCacheWriteTokens: cacheWrite,
+          sessionCacheReadTokens: cacheRead,
           sessionCost: costUSD,
           sessionCostJPY: costUSD * JPY_PER_USD,
           apiCallCount: state.cost.apiCallCount + 1,

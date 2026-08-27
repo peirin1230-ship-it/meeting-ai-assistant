@@ -92,6 +92,16 @@ export function isIOSNonSafari(): boolean {
   return isIOS() && /CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(userAgent());
 }
 
+/** MediaRecorder による録音が使えるか */
+export function isRecordingSupported(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof MediaRecorder !== 'undefined' &&
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices?.getUserMedia
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 「音声認識が使えない理由」の判定
 // ---------------------------------------------------------------------------

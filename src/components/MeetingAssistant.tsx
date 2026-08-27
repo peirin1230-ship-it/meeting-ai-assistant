@@ -7,8 +7,11 @@ import { useClaudeStream } from '@/hooks/useClaudeStream';
 import { useSessionSync } from '@/hooks/useSessionSync';
 import type { ChatRequest, TranscriptSegment, SessionSegment, RespondentId } from '@/types';
 import type { MicStatus } from '@/hooks/useSpeechRecognition';
+import { useAudioRecorder } from '@/hooks/useAudioRecorder';
+import { saveMeta } from '@/lib/recordings-db';
 import AudioCapture, { type AudioCaptureHandle } from './AudioCapture';
 import MicStatusBar from './MicStatusBar';
+import RecordingsPanel from './RecordingsPanel';
 import TranscriptPanel from './TranscriptPanel';
 import InsightPanel from './InsightPanel';
 import ControlBar from './ControlBar';
@@ -35,6 +38,13 @@ export default function MeetingAssistant() {
 
   // スマホ用: AI示唆／文字起こしの表示切替
   const [mobileTab, setMobileTab] = useState<'insight' | 'transcript'>('insight');
+
+  // 音声の端末内保存
+  const recorder = useAudioRecorder();
+  const [saveAudio, setSaveAudio] = useState(false);
+  const [recordingsToken, setRecordingsToken] = useState(0);
+  const recordingIdRef = useRef<string | null>(null);
+  const recordingStartedAtRef = useRef<string | null>(null);
 
   // viewer用: リモートセグメントの蓄積バッファ
   const viewerBufferRef = useRef('');
@@ -105,7 +115,7 @@ export default function MeetingAssistant() {
 
       if (usage) {
         // 実際のトークン使用量でコスト表示を更新する
-        useMeetingStore.getState().updateCost(usage.inputTokens, usage.outputTokens);
+        useMeetingStore.getState().updateCost(usage);
       }
 
       if (generation === analysisGenerationRef.current) {
@@ -270,11 +280,47 @@ export default function MeetingAssistant() {
     if (isViewerRole) {
       session.startPolling();
     }
-  }, [store, buffer, claude, session]);
+
+    // 音声保存が有効なら録音も開始する。
+    // getUserMedia は非同期なので、必ず音声認識の start() より後に呼ぶ
+    // （iOS ではタップと同じ同期コンテキストでの start() が必須のため）
+    if (!isViewerRole && saveAudio && recorder.isSupported) {
+      const id = `rec-${Date.now()}`;
+      recordingIdRef.current = id;
+      recordingStartedAtRef.current = new Date().toISOString();
+      void recorder.start(id);
+    }
+  }, [store, buffer, claude, session, saveAudio, recorder]);
 
   const handleStop = useCallback(() => {
+    // 文字起こしは stopMeeting より先に取得する（stopMeeting 後も残るが順序を明確にする）
+    const state = useMeetingStore.getState();
+    const transcriptText = state.segments
+      .map((seg) => `[${seg.timestamp.toLocaleTimeString('ja-JP')}] ${seg.text}`)
+      .join('\n');
+
     store.stopMeeting();
     audioCaptureRef.current?.stop();
+
+    // 録音を締めて端末内に保存する
+    const recordingId = recordingIdRef.current;
+    if (recordingId) {
+      recordingIdRef.current = null;
+      void recorder.stop().then(async (result) => {
+        if (!result || result.sizeBytes === 0) return;
+        await saveMeta({
+          id: recordingId,
+          startedAt: recordingStartedAtRef.current ?? new Date().toISOString(),
+          durationMs: result.durationMs,
+          mimeType: result.mimeType,
+          sizeBytes: result.sizeBytes,
+          transcript: transcriptText,
+          meetingType: state.meetingType,
+          respondentId: state.respondentId,
+        });
+        setRecordingsToken((t) => t + 1);
+      });
+    }
     if (store.deviceRole === 'phone') {
       // 残りのpendingセグメントを送信
       if (pendingSegmentsRef.current.length > 0) {
@@ -285,7 +331,7 @@ export default function MeetingAssistant() {
     if (store.deviceRole !== 'standalone') {
       session.stopPolling();
     }
-  }, [store, session]);
+  }, [store, session, recorder]);
 
   const handleRequestInsight = useCallback(() => {
     if (store.deviceRole === 'viewer') {
@@ -400,6 +446,20 @@ export default function MeetingAssistant() {
           isActive={store.isActive}
           segmentCount={store.segments.length}
           interimText={store.interimText}
+        />
+      )}
+
+      {/* 音声の端末内保存（viewerは音声を扱わないので非表示） */}
+      {!isViewer && (
+        <RecordingsPanel
+          enabled={saveAudio}
+          onEnabledChange={setSaveAudio}
+          isSupported={recorder.isSupported}
+          status={recorder.status}
+          bytesRecorded={recorder.bytesRecorded}
+          error={recorder.error}
+          isMeetingActive={store.isActive}
+          refreshToken={recordingsToken}
         />
       )}
 

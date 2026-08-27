@@ -67,6 +67,9 @@ export const CLAUDE_MAX_TOKENS = 8192;
 // コスト設定（Claude Sonnet 4.6: input $3/MTok, output $15/MTok）
 export const COST_PER_MTOK_INPUT_USD = 3;
 export const COST_PER_MTOK_OUTPUT_USD = 15;
+// プロンプトキャッシュの単価倍率（書き込みは割高、読み出しは大幅に割安）
+export const CACHE_WRITE_MULTIPLIER = 1.25;
+export const CACHE_READ_MULTIPLIER = 0.1;
 export const COST_LIMIT_PER_SESSION_USD = 1.0;
 export const JPY_PER_USD = 150;
 

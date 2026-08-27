@@ -111,11 +111,10 @@ export async function POST(req: NextRequest) {
           send(controller, {
             type: 'done',
             usage: {
-              // キャッシュ読み書き分も入力トークンとして計上する
-              inputTokens:
-                message.usage.input_tokens +
-                (message.usage.cache_creation_input_tokens ?? 0) +
-                (message.usage.cache_read_input_tokens ?? 0),
+              // 単価が異なるため、キャッシュ書き込み／読み出しは分けて返す
+              inputTokens: message.usage.input_tokens,
+              cacheCreationTokens: message.usage.cache_creation_input_tokens ?? 0,
+              cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
               outputTokens: message.usage.output_tokens,
             },
           });

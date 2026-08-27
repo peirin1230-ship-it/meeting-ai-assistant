@@ -7,7 +7,12 @@
 // SSEで型付きイベントを流し、JSON抽出も堅牢化する。
 
 export interface TokenUsage {
+  /** キャッシュされていない入力トークン（通常単価） */
   inputTokens: number;
+  /** キャッシュ書き込み（通常単価の1.25倍） */
+  cacheCreationTokens: number;
+  /** キャッシュ読み出し（通常単価の0.1倍） */
+  cacheReadTokens: number;
   outputTokens: number;
 }
 
