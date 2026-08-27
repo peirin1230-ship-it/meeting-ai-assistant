@@ -106,7 +106,10 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
   addSegment: (segment) =>
     set((state) => ({ segments: [...state.segments, segment] })),
 
-  setInterimText: (text) => set({ interimText: text }),
+  // 同じ値での set は新しいstateオブジェクトを生む＝購読側の再レンダーを誘発するため、
+  // 変化がないときは state をそのまま返して更新をスキップする
+  setInterimText: (text) =>
+    set((state) => (state.interimText === text ? state : { interimText: text })),
 
   setLatestResponse: (response) =>
     set((state) => ({
@@ -116,8 +119,10 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       takadaInsight: response.takada ?? state.takadaInsight,
     })),
 
-  setStreaming: (streaming) => set({ isStreaming: streaming }),
-  setError: (error) => set({ error }),
+  setStreaming: (streaming) =>
+    set((state) => (state.isStreaming === streaming ? state : { isStreaming: streaming })),
+
+  setError: (error) => set((state) => (state.error === error ? state : { error })),
 
   updateCost: (inputTokens, outputTokens) =>
     set((state) => {

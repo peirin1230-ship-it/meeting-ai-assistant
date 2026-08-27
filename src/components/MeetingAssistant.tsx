@@ -1,12 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMeetingStore } from '@/stores/meeting-store';
 import { useTranscriptBuffer } from '@/hooks/useTranscriptBuffer';
 import { useClaudeStream } from '@/hooks/useClaudeStream';
 import { useSessionSync } from '@/hooks/useSessionSync';
 import type { ChatRequest, TranscriptSegment, SessionSegment, RespondentId } from '@/types';
+import type { MicStatus } from '@/hooks/useSpeechRecognition';
 import AudioCapture, { type AudioCaptureHandle } from './AudioCapture';
+import MicStatusBar from './MicStatusBar';
 import TranscriptPanel from './TranscriptPanel';
 import InsightPanel from './InsightPanel';
 import ControlBar from './ControlBar';
@@ -20,10 +22,18 @@ export default function MeetingAssistant() {
   const store = useMeetingStore();
   const buffer = useTranscriptBuffer();
   const claude = useClaudeStream();
+  const shouldSend = buffer.shouldSend;
   const checkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const interimPushRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingSegmentsRef = useRef<SessionSegment[]>([]);
   const audioCaptureRef = useRef<AudioCaptureHandle>(null);
+
+  // マイクの状態（スマホでは文字起こしパネルが隠れるため、常時表示に使う）
+  const [micStatus, setMicStatus] = useState<MicStatus>('idle');
+  const [micHint, setMicHint] = useState<string | null>(null);
+
+  // スマホ用: AI示唆／文字起こしの表示切替
+  const [mobileTab, setMobileTab] = useState<'insight' | 'transcript'>('insight');
 
   // viewer用: リモートセグメントの蓄積バッファ
   const viewerBufferRef = useRef('');
@@ -60,29 +70,36 @@ export default function MeetingAssistant() {
   });
 
   // API呼び出し
+  // 注: useMeetingStore() が返すオブジェクトは更新のたびに identity が変わるため、
+  //     依存に入れると毎レンダーで関数が作り直され、タイマーが張り直されてしまう。
+  //     そのため store の読み取りは getState() で行い、依存を安定させる。
+  const flushBuffer = buffer.flush;
+  const sendRequest = claude.sendRequest;
+
   const requestAnalysis = useCallback(
     async (text?: string) => {
-      const transcript = text ?? buffer.flush();
+      const transcript = text ?? flushBuffer();
       if (!transcript.trim()) return;
 
+      const state = useMeetingStore.getState();
       const request: ChatRequest = {
         transcript,
-        meetingType: store.meetingType,
-        respondentId: store.respondentId,
-        previousContext: store.getPreviousContext(),
+        meetingType: state.meetingType,
+        respondentId: state.respondentId,
+        previousContext: state.getPreviousContext(),
         previousInsight:
-          store.respondentId === 'takamatsu'
-            ? store.takamatsuInsight ?? undefined
-            : store.takadaInsight ?? undefined,
+          state.respondentId === 'takamatsu'
+            ? state.takamatsuInsight ?? undefined
+            : state.takadaInsight ?? undefined,
         requestType: 'auto',
-        meetingPhase: store.getMeetingPhase(),
+        meetingPhase: state.getMeetingPhase(),
       };
 
-      store.setStreaming(true);
-      await claude.sendRequest(request);
-      store.setStreaming(false);
+      state.setStreaming(true);
+      await sendRequest(request);
+      useMeetingStore.getState().setStreaming(false);
     },
-    [buffer, claude, store],
+    [flushBuffer, sendRequest],
   );
 
   // claude応答の反映（storeを依存に入れると無限ループになるため除外）
@@ -119,7 +136,7 @@ export default function MeetingAssistant() {
     } else {
       // standaloneモード: 既存ロジック
       checkIntervalRef.current = setInterval(() => {
-        if (buffer.shouldSend() && !claude.isStreaming) {
+        if (shouldSend() && !claude.isStreaming) {
           requestAnalysis();
         }
       }, 5000);
@@ -131,7 +148,7 @@ export default function MeetingAssistant() {
         checkIntervalRef.current = null;
       }
     };
-  }, [store.isActive, store.deviceRole, buffer, claude.isStreaming, requestAnalysis]);
+  }, [store.isActive, store.deviceRole, shouldSend, claude.isStreaming, requestAnalysis]);
 
   // viewerモード: 30秒経過でも分析実行（文字数が足りなくても）
   useEffect(() => {
@@ -149,19 +166,19 @@ export default function MeetingAssistant() {
   }, [store.isActive, store.deviceRole, claude.isStreaming, requestAnalysis]);
 
   // phoneモード: 2秒ごとにinterimテキストをRedisに送信
+  // interimText を依存に入れると発話のたびにタイマーが張り直され、
+  // 2秒間隔が一度も満了しなくなるため、タイマー内で最新値を読む
+  const pushTranscript = session.pushTranscript;
   useEffect(() => {
     if (!store.isActive || store.deviceRole !== 'phone') return;
 
     interimPushRef.current = setInterval(() => {
       // pending確定セグメントがあれば送信
       const segments = pendingSegmentsRef.current;
-      const interimText = store.interimText;
+      const interimText = useMeetingStore.getState().interimText;
 
       if (segments.length > 0 || interimText) {
-        session.pushTranscript(
-          segments.length > 0 ? segments : undefined,
-          interimText,
-        );
+        pushTranscript(segments.length > 0 ? segments : undefined, interimText);
         pendingSegmentsRef.current = [];
       }
     }, 2000);
@@ -172,9 +189,15 @@ export default function MeetingAssistant() {
         interimPushRef.current = null;
       }
     };
-  }, [store.isActive, store.deviceRole, store.interimText, session]);
+  }, [store.isActive, store.deviceRole, pushTranscript]);
 
   // 音声認識からのテキスト受信
+  // これらのコールバックは AudioCapture の useEffect 依存に入るため、
+  // 必ず identity を安定させること。store をそのまま依存にすると
+  // 「setError → storeの新オブジェクト → コールバック再生成 → effect再実行
+  //   → setError」の無限レンダーループになり、タップした瞬間に画面が落ちる。
+  const addFinalTextToBuffer = buffer.addFinalText;
+
   const handleFinalText = useCallback(
     (text: string) => {
       const segment: TranscriptSegment = {
@@ -183,11 +206,12 @@ export default function MeetingAssistant() {
         timestamp: new Date(),
         isFinal: true,
       };
-      store.addSegment(segment);
-      buffer.addFinalText(text);
+      const state = useMeetingStore.getState();
+      state.addSegment(segment);
+      addFinalTextToBuffer(text);
 
       // phoneモード: 確定セグメントを送信キューに追加
-      if (store.deviceRole === 'phone') {
+      if (state.deviceRole === 'phone') {
         pendingSegmentsRef.current.push({
           id: segment.id,
           text: segment.text,
@@ -196,38 +220,42 @@ export default function MeetingAssistant() {
         });
       }
     },
-    [store, buffer],
+    [addFinalTextToBuffer],
   );
 
-  const handleInterimText = useCallback(
-    (text: string) => {
-      store.setInterimText(text);
-    },
-    [store],
-  );
+  const handleInterimText = useCallback((text: string) => {
+    useMeetingStore.getState().setInterimText(text);
+  }, []);
 
-  const handleError = useCallback(
-    (error: string) => {
-      store.setError(error);
-    },
-    [store],
-  );
+  const handleError = useCallback((error: string) => {
+    useMeetingStore.getState().setError(error);
+  }, []);
+
+  const handleMicStatusChange = useCallback((status: MicStatus, hint: string | null) => {
+    setMicStatus(status);
+    setMicHint(hint);
+  }, []);
 
   const handleStart = useCallback(() => {
+    const isViewerRole = store.deviceRole === 'viewer';
+
+    // iOS Safari対策: マイク起動はタップと同じ同期コンテキストで、かつ
+    // できるだけ早い段階で呼ぶ必要があるため、state更新より先に実行する
+    if (!isViewerRole) {
+      audioCaptureRef.current?.start();
+    }
+
     store.startMeeting();
     buffer.reset();
     claude.reset();
     segmentId = 0;
     viewerBufferRef.current = '';
     pendingSegmentsRef.current = [];
+    setMobileTab('insight');
 
     // viewerモード: ポーリング開始
-    if (store.deviceRole === 'viewer') {
+    if (isViewerRole) {
       session.startPolling();
-    } else {
-      // iOS Safari対策: マイク起動はタップと同じ同期コンテキストで呼ぶ必要があるため、
-      // useEffect任せにせずここ（ボタンハンドラ内）で直接 start() する
-      audioCaptureRef.current?.start();
     }
   }, [store, buffer, claude, session]);
 
@@ -318,7 +346,7 @@ export default function MeetingAssistant() {
   const isPhone = store.deviceRole === 'phone';
 
   return (
-    <div className="flex h-screen flex-col gap-3 p-3">
+    <div className="flex h-dvh flex-col gap-3 p-3">
       {/* セッションバー */}
       <SessionBar
         deviceRole={store.deviceRole}
@@ -351,6 +379,43 @@ export default function MeetingAssistant() {
         isStreaming={store.isStreaming}
       />
 
+      {/* マイク状態（viewerは音声を拾わないので非表示） */}
+      {!isViewer && (
+        <MicStatusBar
+          status={micStatus}
+          hint={micHint}
+          isActive={store.isActive}
+          segmentCount={store.segments.length}
+          interimText={store.interimText}
+        />
+      )}
+
+      {/* スマホ用タブ切替（PCは2カラム表示のため不要） */}
+      {!isPhone && (
+        <div className="flex gap-2 md:hidden">
+          <button
+            onClick={() => setMobileTab('insight')}
+            className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              mobileTab === 'insight'
+                ? 'bg-blue-500 text-white'
+                : 'border border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-400'
+            }`}
+          >
+            AI示唆
+          </button>
+          <button
+            onClick={() => setMobileTab('transcript')}
+            className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              mobileTab === 'transcript'
+                ? 'bg-blue-500 text-white'
+                : 'border border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-400'
+            }`}
+          >
+            文字起こし{store.segments.length > 0 ? ` (${store.segments.length})` : ''}
+          </button>
+        </div>
+      )}
+
       {/* エラー表示 */}
       {store.error && (
         <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
@@ -372,9 +437,13 @@ export default function MeetingAssistant() {
             <div className="text-center">
               {store.isActive ? (
                 <>
-                  <div className="mb-2 text-4xl">🎙️</div>
+                  <div className="mb-2 text-4xl">{micStatus === 'listening' ? '🎙️' : '⏳'}</div>
                   <p className="text-lg font-medium text-gray-700 dark:text-gray-300">
-                    音声を送信中...
+                    {micStatus === 'listening'
+                      ? '音声を送信中...'
+                      : micStatus === 'error'
+                        ? 'マイクを起動できませんでした'
+                        : 'マイクを起動しています...'}
                   </p>
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                     セグメント: {store.segments.length}件
@@ -399,17 +468,25 @@ export default function MeetingAssistant() {
           </div>
         ) : (
           <>
-            {/* 文字起こしパネル (PC/standaloneのみ) */}
-            <div className="hidden w-1/2 md:block">
+            {/* 文字起こしパネル（スマホではタブで切替、PCは常時表示） */}
+            <div
+              className={`w-full md:block md:w-1/2 ${
+                mobileTab === 'transcript' ? 'block' : 'hidden'
+              }`}
+            >
               <TranscriptPanel
                 segments={store.segments}
                 interimText={store.interimText}
-                isListening={store.isActive}
+                isListening={micStatus === 'listening'}
               />
             </div>
 
             {/* AI示唆パネル */}
-            <div className="w-full md:w-1/2">
+            <div
+              className={`w-full md:block md:w-1/2 ${
+                mobileTab === 'insight' ? 'block' : 'hidden'
+              }`}
+            >
               <InsightPanel
                 response={store.latestResponse}
                 respondentId={store.respondentId}
@@ -432,6 +509,7 @@ export default function MeetingAssistant() {
           onFinalText={handleFinalText}
           onInterimText={handleInterimText}
           onError={handleError}
+          onStatusChange={handleMicStatusChange}
         />
       )}
     </div>
