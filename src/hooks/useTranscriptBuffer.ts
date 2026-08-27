@@ -6,7 +6,6 @@ import { BUFFER_SEND_INTERVAL_MS, BUFFER_SEND_CHAR_THRESHOLD } from '@/lib/const
 
 interface UseTranscriptBufferReturn {
   segments: TranscriptSegment[];
-  pendingText: string;
   addFinalText: (text: string) => void;
   shouldSend: () => boolean;
   flush: () => string;
@@ -64,7 +63,6 @@ export function useTranscriptBuffer(): UseTranscriptBufferReturn {
 
   return {
     segments,
-    pendingText: pendingTextRef.current,
     addFinalText,
     shouldSend,
     flush,

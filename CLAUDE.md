@@ -49,6 +49,7 @@ meeting-ai-assistant/
 │   ├── components/
 │   │   ├── MeetingAssistant.tsx  # メインコンテナコンポーネント
 │   │   ├── AudioCapture.tsx     # 音声認識コンポーネント
+│   │   ├── MicStatusBar.tsx     # マイク状態表示（スマホで必須）
 │   │   ├── TranscriptPanel.tsx  # 文字起こし表示パネル
 │   │   ├── InsightPanel.tsx     # AI示唆・要約表示パネル
 │   │   ├── ControlBar.tsx       # 操作バー（開始/停止/設定）
@@ -57,13 +58,19 @@ meeting-ai-assistant/
 │   │
 │   ├── hooks/
 │   │   ├── useSpeechRecognition.ts  # Web Speech API ラッパー
+│   │   ├── useWakeLock.ts           # 録音中の画面ロック抑止
 │   │   ├── useClaudeStream.ts       # Claude API SSE接続
+│   │   ├── useSessionSync.ts        # スマホ↔PC のクロスデバイス同期
 │   │   └── useTranscriptBuffer.ts   # 文字バッファ管理
 │   │
 │   ├── lib/
-│   │   ├── claude.ts            # Claude API クライアント
+│   │   ├── browser.ts           # ブラウザ判定・マイク診断
+│   │   ├── stream-protocol.ts   # /api/chat のSSEプロトコル（サーバー/クライアント共有）
 │   │   ├── prompts.ts           # プロンプトテンプレート集
 │   │   ├── token-counter.ts     # トークン数推定
+│   │   ├── respondents.ts       # 回答者（高松/高田）定義
+│   │   ├── redis.ts             # Upstash Redis クライアント
+│   │   ├── session.ts           # セッションコード生成
 │   │   └── constants.ts         # 定数定義
 │   │
 │   ├── stores/
@@ -169,7 +176,7 @@ type MeetingType =
 ```typescript
 // Prompt caching の実装
 const response = await anthropic.messages.create({
-  model: 'claude-sonnet-4-6-20250514',
+  model: CLAUDE_MODEL,  // 'claude-sonnet-4-6' (src/lib/constants.ts で定義)
   max_tokens: 1024,
   system: [
     {
@@ -342,6 +349,33 @@ npm run type-check
 
 ---
 
+## 落とし穴（実際に踏んだもの）
+
+### zustand の identity と useEffect 依存
+
+`useMeetingStore()` が返すオブジェクトは、ストアが更新されるたびに identity が変わる。
+これを `useCallback` / `useEffect` の依存に入れると、
+
+1. `setError` → 新しい state オブジェクト
+2. → コールバックが再生成
+3. → それを依存に持つ effect が再実行
+4. → 再び `setError` … と無限ループになり、React が描画を打ち切ってページごと落ちる
+
+**対策:**
+- 子コンポーネントに渡すコールバックは `useMeetingStore.getState()` で読み、依存を空にする
+- ストアのセッターは、値が変わらないときに `state` をそのまま返して更新をスキップする
+- `setInterval` を張る effect の依存に、毎レンダー変わる値（フック戻り値のオブジェクト等）を
+  入れない。タイマーが張り直され続けて一度も満了しなくなる
+
+### 音声認識（Web Speech API）
+
+- インスタンスは世代番号で識別する。「停止→すぐ開始」で古い `onend` が
+  新しいインスタンスを壊す競合が起きる
+- iOS Safari では `recognition.start()` をタップと同じ同期コンテキストで呼ぶ
+- 権限ダイアログの応答待ちは数秒かかる。短いタイムアウトでエラー扱いしない
+
+---
+
 ## コーディング規約
 
 - **コンポーネント:** React Server Components をデフォルトに。`'use client'` は状態を持つコンポーネントのみ
@@ -358,4 +392,7 @@ npm run type-check
 - APIキーは `.env.local` に格納、クライアントに露出させない
 - `/api/chat` でレート制限を実装（1分あたり最大20リクエスト）
 - CORS設定で自ドメインのみ許可
-- 会議データはサーバーに保存しない（クライアントサイドのみ）
+- 会議データは原則クライアントサイドのみで保持する
+- 例外: クロスデバイス同期（スマホ↔PC）を使う場合のみ、文字起こしを Upstash Redis に
+  一時保存する（TTL 2時間、`MAX_SESSION_SEGMENTS` 件で古い分は破棄）。
+  6桁のセッションコードを知っていれば誰でも読めるため、機微な会議では使わないこと

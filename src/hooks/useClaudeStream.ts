@@ -2,24 +2,24 @@
 
 import { useCallback, useRef, useState } from 'react';
 import type { AIResponse, ChatRequest } from '@/types';
+import { createSSEParser, extractJsonObject, type TokenUsage } from '@/lib/stream-protocol';
 
 interface UseClaudeStreamReturn {
   isStreaming: boolean;
-  streamText: string;
   latestResponse: AIResponse | null;
   error: string | null;
-  sendRequest: (request: ChatRequest) => Promise<void>;
+  /** 成功時はトークン使用量を返す（コスト表示に使う）。失敗時は null */
+  sendRequest: (request: ChatRequest) => Promise<TokenUsage | null>;
   reset: () => void;
 }
 
 export function useClaudeStream(): UseClaudeStreamReturn {
   const [isStreaming, setIsStreaming] = useState(false);
-  const [streamText, setStreamText] = useState('');
   const [latestResponse, setLatestResponse] = useState<AIResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const sendRequest = useCallback(async (request: ChatRequest) => {
+  const sendRequest = useCallback(async (request: ChatRequest): Promise<TokenUsage | null> => {
     // 前のリクエストをキャンセル
     if (abortRef.current) {
       abortRef.current.abort();
@@ -29,7 +29,6 @@ export function useClaudeStream(): UseClaudeStreamReturn {
     abortRef.current = controller;
 
     setIsStreaming(true);
-    setStreamText('');
     setError(null);
 
     try {
@@ -41,36 +40,59 @@ export function useClaudeStream(): UseClaudeStreamReturn {
       });
 
       if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`API エラー ${res.status}: ${errText}`);
+        // エラーレスポンスはJSON（{ error: string }）で返る
+        let detail = `HTTP ${res.status}`;
+        try {
+          const errBody = (await res.json()) as { error?: string };
+          if (errBody.error) detail = errBody.error;
+        } catch {
+          // JSONでなければステータスのみ
+        }
+        throw new Error(detail);
       }
 
       const reader = res.body?.getReader();
       if (!reader) throw new Error('レスポンスの読み取りに失敗しました');
 
       const decoder = new TextDecoder();
+      const parseSSE = createSSEParser();
       let accumulated = '';
+      let usage: TokenUsage | null = null;
+      let streamError: string | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        accumulated += chunk;
-        setStreamText(accumulated);
+        for (const event of parseSSE(decoder.decode(value, { stream: true }))) {
+          if (event.type === 'delta') {
+            accumulated += event.text;
+          } else if (event.type === 'done') {
+            usage = event.usage;
+          } else {
+            streamError = event.message;
+          }
+        }
       }
 
-      // JSONパース
-      try {
-        const parsed = JSON.parse(accumulated) as AIResponse;
-        parsed.respondentId = request.respondentId;
-        setLatestResponse(parsed);
-      } catch {
-        setError('AI応答のJSON解析に失敗しました。再試行してください。');
+      if (streamError) {
+        throw new Error(`AI応答の生成に失敗しました: ${streamError}`);
       }
+
+      // コードブロックで囲まれていても取り出せるようにする
+      const parsed = extractJsonObject<AIResponse>(accumulated);
+      if (!parsed) {
+        setError('AI応答のJSON解析に失敗しました。再試行してください。');
+        return null;
+      }
+
+      parsed.respondentId = request.respondentId;
+      setLatestResponse(parsed);
+      return usage;
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return;
+      if (err instanceof Error && err.name === 'AbortError') return null;
       setError(err instanceof Error ? err.message : String(err));
+      return null;
     } finally {
       setIsStreaming(false);
       abortRef.current = null;
@@ -80,10 +102,9 @@ export function useClaudeStream(): UseClaudeStreamReturn {
   const reset = useCallback(() => {
     if (abortRef.current) abortRef.current.abort();
     setIsStreaming(false);
-    setStreamText('');
     setLatestResponse(null);
     setError(null);
   }, []);
 
-  return { isStreaming, streamText, latestResponse, error, sendRequest, reset };
+  return { isStreaming, latestResponse, error, sendRequest, reset };
 }

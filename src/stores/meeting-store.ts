@@ -10,7 +10,13 @@ import type {
   TranscriptSegment,
   DeviceRole,
 } from '@/types';
-import { PHASE_EARLY_MINUTES, PHASE_MID_MINUTES } from '@/lib/constants';
+import {
+  PHASE_EARLY_MINUTES,
+  PHASE_MID_MINUTES,
+  COST_PER_MTOK_INPUT_USD,
+  COST_PER_MTOK_OUTPUT_USD,
+  JPY_PER_USD,
+} from '@/lib/constants';
 
 interface MeetingState {
   // 会議設定
@@ -128,13 +134,14 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
     set((state) => {
       const newInput = state.cost.sessionInputTokens + inputTokens;
       const newOutput = state.cost.sessionOutputTokens + outputTokens;
-      const costUSD = (newInput * 3 + newOutput * 15) / 1_000_000;
+      const costUSD =
+        (newInput * COST_PER_MTOK_INPUT_USD + newOutput * COST_PER_MTOK_OUTPUT_USD) / 1_000_000;
       return {
         cost: {
           sessionInputTokens: newInput,
           sessionOutputTokens: newOutput,
           sessionCost: costUSD,
-          sessionCostJPY: costUSD * 150,
+          sessionCostJPY: costUSD * JPY_PER_USD,
           apiCallCount: state.cost.apiCallCount + 1,
         },
       };

@@ -27,6 +27,7 @@ export default function MeetingAssistant() {
   const interimPushRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingSegmentsRef = useRef<SessionSegment[]>([]);
   const audioCaptureRef = useRef<AudioCaptureHandle>(null);
+  const analysisGenerationRef = useRef(0);
 
   // マイクの状態（スマホでは文字起こしパネルが隠れるため、常時表示に使う）
   const [micStatus, setMicStatus] = useState<MicStatus>('idle');
@@ -40,7 +41,7 @@ export default function MeetingAssistant() {
 
   // セッション同期フック
   const session = useSessionSync({
-    onRemoteSegments: (newSegments, _allSegments) => {
+    onRemoteSegments: (newSegments) => {
       if (store.deviceRole !== 'viewer') return;
       // リモートセグメントをストアに追加
       for (const seg of newSegments) {
@@ -95,9 +96,21 @@ export default function MeetingAssistant() {
         meetingPhase: state.getMeetingPhase(),
       };
 
+      // 後発のリクエストが走っている場合に、先発の完了で
+      // 「分析中」表示を消してしまわないよう世代番号で判定する
+      const generation = ++analysisGenerationRef.current;
+
       state.setStreaming(true);
-      await sendRequest(request);
-      useMeetingStore.getState().setStreaming(false);
+      const usage = await sendRequest(request);
+
+      if (usage) {
+        // 実際のトークン使用量でコスト表示を更新する
+        useMeetingStore.getState().updateCost(usage.inputTokens, usage.outputTokens);
+      }
+
+      if (generation === analysisGenerationRef.current) {
+        useMeetingStore.getState().setStreaming(false);
+      }
     },
     [flushBuffer, sendRequest],
   );
@@ -491,7 +504,6 @@ export default function MeetingAssistant() {
                 response={store.latestResponse}
                 respondentId={store.respondentId}
                 isStreaming={store.isStreaming}
-                streamText={claude.streamText}
               />
             </div>
           </>

@@ -52,9 +52,26 @@ export const MEETING_TYPES = [
 export const BUFFER_SEND_INTERVAL_MS = 30_000;
 export const BUFFER_SEND_CHAR_THRESHOLD = 300;
 
-// コスト設定
+// ============================================================
+// Claude API 設定
+// ============================================================
+
+// 使用モデル（CLAUDE.md の指定どおり Sonnet 4.6）
+// 注: モデルIDに日付サフィックスは付けない
+export const CLAUDE_MODEL = 'claude-sonnet-4-6';
+
+// 出力トークン上限。JSON構造の応答が途中で切れるとパースに失敗するため、
+// 日本語のJSON応答が収まるだけの余裕を持たせる
+export const CLAUDE_MAX_TOKENS = 8192;
+
+// コスト設定（Claude Sonnet 4.6: input $3/MTok, output $15/MTok）
+export const COST_PER_MTOK_INPUT_USD = 3;
+export const COST_PER_MTOK_OUTPUT_USD = 15;
 export const COST_LIMIT_PER_SESSION_USD = 1.0;
 export const JPY_PER_USD = 150;
+
+// レート制限（1分あたり／IPあたり）
+export const RATE_LIMIT_PER_MINUTE = 20;
 
 // 会議フェーズ判定（分）
 export const PHASE_EARLY_MINUTES = 10;
@@ -64,3 +81,7 @@ export const PHASE_MID_MINUTES = 40;
 export const SESSION_POLL_INTERVAL_MS = 2_000;
 export const SESSION_TTL_SECONDS = 7_200;
 export const SESSION_CODE_LENGTH = 6;
+
+// Redisに保持する確定セグメントの上限。
+// 長時間の会議で値が肥大化して書き込みが失敗するのを防ぐ（超過分は古い順に破棄）
+export const MAX_SESSION_SEGMENTS = 1_000;

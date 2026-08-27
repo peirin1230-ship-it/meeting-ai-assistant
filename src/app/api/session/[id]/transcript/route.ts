@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getRedis } from '@/lib/redis';
 import { sessionKey } from '@/lib/session';
-import { SESSION_TTL_SECONDS } from '@/lib/constants';
+import { SESSION_TTL_SECONDS, MAX_SESSION_SEGMENTS } from '@/lib/constants';
 import type { SessionData, SessionSegment } from '@/types';
 
 interface TranscriptUpdate {
@@ -37,7 +37,17 @@ export async function POST(
     // 新しい確定セグメントを追加
     if (segments && segments.length > 0) {
       session.segments.push(...segments);
-      session.segmentVersion += 1;
+
+      // segmentVersion は「これまでに追加されたセグメントの総数」。
+      // viewer 側はこの差分から新着件数を割り出すため、
+      // 追加件数ぶん増やさないとセグメントを取りこぼす。
+      session.segmentVersion += segments.length;
+
+      // 長時間の会議で値が肥大化して書き込みが失敗しないよう古い分を捨てる。
+      // segmentVersion は総数のままなので、viewer の差分計算は壊れない。
+      if (session.segments.length > MAX_SESSION_SEGMENTS) {
+        session.segments = session.segments.slice(-MAX_SESSION_SEGMENTS);
+      }
     }
 
     // interim テキストを更新

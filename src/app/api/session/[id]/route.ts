@@ -3,6 +3,9 @@ import { getRedis } from '@/lib/redis';
 import { sessionKey } from '@/lib/session';
 import type { SessionData } from '@/types';
 
+// ポーリングで使うため、常に最新をサーバーで生成する
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -19,7 +22,9 @@ export async function GET(
     }
 
     const session: SessionData = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    return NextResponse.json(session);
+    return NextResponse.json(session, {
+      headers: { 'Cache-Control': 'no-store' },
+    });
   } catch (error) {
     console.error('Session get error:', error);
     return NextResponse.json(

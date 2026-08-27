@@ -99,6 +99,14 @@ export function useSessionSync(options: UseSessionSyncOptions = {}): UseSessionS
     []
   );
 
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    setIsPolling(false);
+  }, []);
+
   const endSession = useCallback(async (): Promise<void> => {
     const code = sessionCodeRef.current;
     if (!code) return;
@@ -111,7 +119,7 @@ export function useSessionSync(options: UseSessionSyncOptions = {}): UseSessionS
     sessionCodeRef.current = null;
     setIsConnected(false);
     setSessionData(null);
-  }, []);
+  }, [stopPolling]);
 
   const poll = useCallback(async () => {
     const code = sessionCodeRef.current;
@@ -137,15 +145,17 @@ export function useSessionSync(options: UseSessionSyncOptions = {}): UseSessionS
       setSessionData(data);
 
       // 新しい確定セグメントがあるか
+      // segmentVersion は「追加された総数」。保持件数の上限で古い分が
+      // 捨てられている場合もあるため、開始位置を配列内にクランプする。
       if (data.segmentVersion > lastVersionRef.current) {
-        const newSegments = data.segments.slice(
-          // 前回のバージョンで何個あったか推定（差分取得）
-          lastVersionRef.current > 0
-            ? data.segments.length - (data.segmentVersion - lastVersionRef.current)
-            : 0
-        );
+        const added = data.segmentVersion - lastVersionRef.current;
+        const start = Math.max(0, data.segments.length - added);
+        const newSegments = data.segments.slice(start);
+
         lastVersionRef.current = data.segmentVersion;
-        optionsRef.current.onRemoteSegments?.(newSegments, data.segments);
+        if (newSegments.length > 0) {
+          optionsRef.current.onRemoteSegments?.(newSegments, data.segments);
+        }
       }
 
       // interimテキストの変更
@@ -156,7 +166,7 @@ export function useSessionSync(options: UseSessionSyncOptions = {}): UseSessionS
     } catch {
       // ネットワークエラーは次回リトライ
     }
-  }, []);
+  }, [stopPolling]);
 
   const startPolling = useCallback(() => {
     if (pollingRef.current) return;
@@ -165,14 +175,6 @@ export function useSessionSync(options: UseSessionSyncOptions = {}): UseSessionS
     poll();
     pollingRef.current = setInterval(poll, SESSION_POLL_INTERVAL_MS);
   }, [poll]);
-
-  const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-    setIsPolling(false);
-  }, []);
 
   // クリーンアップ
   useEffect(() => {

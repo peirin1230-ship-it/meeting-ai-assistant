@@ -9,12 +9,11 @@ interface InsightPanelProps {
   response: AIResponse | null;
   respondentId: RespondentId;
   isStreaming: boolean;
-  streamText: string;
 }
 
 type TabId = 'analysis' | 'summary' | 'actions';
 
-export default function InsightPanel({ response, respondentId, isStreaming, streamText }: InsightPanelProps) {
+export default function InsightPanel({ response, respondentId, isStreaming }: InsightPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('analysis');
 
   const tabs: { id: TabId; label: string }[] = [
