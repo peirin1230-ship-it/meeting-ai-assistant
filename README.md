@@ -131,6 +131,31 @@ Vercel へのデプロイ推奨：
    - `UPSTASH_REDIS_REST_TOKEN`（クロスデバイス同期用）
 3. デプロイ実行
 
+### デプロイの仕組みと確認方法
+
+- **本番へのデプロイは `main` への push で自動的に走る。**
+  Vercel の Git 連携（webhook）が使われる。GitHub Actions は使っていない
+- Vercel プロジェクトの Settings → Git で、接続先リポジトリと
+  **Production Branch = `main`** になっていることを確認する
+
+**注意:** Git 連携が切れていると、push してもビルドが走らないまま
+本番は古いコミットを配信し続ける。ダッシュボードは正常に見えるので気づきにくい。
+再接続しただけでは既存コミットは遡ってビルドされないため、
+**接続後に新しい push が1回必要**（または Deployments → Create Deployment）。
+
+本番でどのコミットが動いているかは、CDNキャッシュに影響されない
+API ルートを叩くのが確実：
+
+```bash
+# 不正なJSONを送ってエラー応答の形を見る
+curl -s -X POST -H 'Content-Type: application/json' --data 'not-json' \
+  https://meeting-ai-assistant-liart.vercel.app/api/chat
+# → {"error":"リクエストの形式が不正です"} なら現行コード
+```
+
+トップページは Vercel の CDN にキャッシュされるため、`age` ヘッダが
+大きい場合は古い内容を見ている可能性がある。
+
 ## Claude Code スキル
 
 会議後の深堀り分析用に `/meeting` スキルも利用可能です。
